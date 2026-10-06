@@ -113,7 +113,7 @@ def get_compliance_category(pct):
     else:
         return "EXCELLENT"
 
-# Fungsi render item audit standar
+# Fungsi render item audit standar dengan Persistence (Data tersimpan & dapat diedit)
 def render_audit_item(kode, pertanyaan, valid_opsi, alert_label, bobot, key_suffix, elemen_group):
     alert_badge = f" ⚠️ **[Alert: {alert_label}]**" if alert_label else ""
     st.markdown(f"**{kode}** {pertanyaan} {alert_badge}")
@@ -145,25 +145,35 @@ def render_audit_item(kode, pertanyaan, valid_opsi, alert_label, bobot, key_suff
     else:
         options = ["A", "B", "C", "D", "E", "F", "X"]
 
+    # Ambil nilai sebelumnya jika sudah pernah diisi
+    saved_item = st.session_state.audit_data.get(kode, {})
+    prev_opsi = saved_item.get("Opsi Dipilih", options[0])
+    prev_catatan = saved_item.get("Catatan Assessor", "")
+    if prev_catatan == "-":
+        prev_catatan = ""
+    
+    default_index = options.index(prev_opsi) if prev_opsi in options else 0
+
     col_q, col_score = st.columns([5, 1])
     with col_q:
-        opsi = st.radio(f"Pilih Opsi Penilaian ({kode}):", options, horizontal=True, key=f"opsi_{key_suffix}")
+        opsi = st.radio(f"Pilih Opsi Penilaian ({kode}):", options, index=default_index, horizontal=True, key=f"opsi_{key_suffix}")
         
     nilai_huruf = mapping_nilai.get(opsi, 0.0)
     final_score = nilai_huruf * bobot
     
     with col_score:
         st.markdown(f"**Score:** `{final_score:.2f}`")
-        
-    if alert_label and nilai_huruf < 1.0:
-        st.warning(f"🚨 **Temuan Alert [{alert_label}]:** Assessor wajib melampirkan catatan atau bukti temuan karena penilaian di bawah standar.")
+        script_alert = ""
+        if alert_label and nilai_huruf < 1.0:
+            st.warning(f"🚨 **Temuan Alert [{alert_label}]:** Assessor wajib melampirkan catatan atau bukti temuan.")
 
     col_cat, col_up = st.columns(2)
     with col_cat:
-        catatan = st.text_input(f"Catatan Assessor ({kode})", placeholder="Tambah catatan temuan...", key=f"cat_{key_suffix}")
+        catatan = st.text_input(f"Catatan Assessor ({kode})", value=prev_catatan, placeholder="Tambah catatan temuan...", key=f"cat_{key_suffix}")
     
-    file_name_saved = "Tidak Ada Lampiran"
-    file_path_saved = None
+    file_name_saved = saved_item.get("Lampiran Bukti Foto/Video", "Tidak Ada Lampiran")
+    file_path_saved = saved_item.get("File_Path", None)
+    
     with col_up:
         uploaded_file = st.file_uploader(f"Bukti Foto/Video ({kode})", type=["png", "jpg", "jpeg", "mp4", "mov"], key=f"up_{key_suffix}")
         
@@ -175,11 +185,12 @@ def render_audit_item(kode, pertanyaan, valid_opsi, alert_label, bobot, key_suff
             
             with open(file_path_saved, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            
-            if file_extension in ["png", "jpg", "jpeg"]:
-                st.image(uploaded_file, caption=f"Pratinjau Bukti: {kode}", use_container_width=True)
-            elif file_extension in ["mp4", "mov"]:
-                st.video(uploaded_file)
+        
+        # Tampilkan pratinjau jika file sudah ada di session/tersimpan
+        if file_path_saved and os.path.exists(file_path_saved):
+            ext = file_path_saved.split('.')[-1].lower()
+            if ext in ["png", "jpg", "jpeg"]:
+                st.image(file_path_saved, caption=f"Eviden Tersimpan: {kode}", use_container_width=True)
     
     st.session_state.audit_data[kode] = {
         "Code": kode,
@@ -198,15 +209,24 @@ def render_audit_item(kode, pertanyaan, valid_opsi, alert_label, bobot, key_suff
     st.success(f"Opsi Terpilih: **{opsi}** (Nilai: {nilai_huruf} × Bobot: {bobot} = **Score: {final_score:.2f}**)")
     st.markdown("---")
 
-# Fungsi khusus render item Densitas dengan Parameter Input Tambahan
+# Fungsi khusus render item Densitas dengan Persistence
 def render_density_audit_item(kode, nama_bbm, bobot, key_suffix):
     st.markdown(f"**{kode} Berat Jenis (densitas) {nama_bbm} diukur selama audit dalam rentang +/-0.03 dengan merujuk pada densitas dari penerimaan terakhir, yang diambil minimal 2 jam setelah pembongkaran**")
     
+    saved_item = st.session_state.audit_data.get(kode, {})
+    prev_opsi = saved_item.get("Opsi Dipilih", "A")
+    prev_catatan = saved_item.get("Catatan Assessor", "")
+    if prev_catatan == "-":
+        prev_catatan = ""
+        
+    options_dens = ["A", "F", "X"]
+    default_idx = options_dens.index(prev_opsi) if prev_opsi in options_dens else 0
+
     col_opt, col_cat = st.columns([2, 4])
     with col_opt:
-        opsi = st.selectbox(f"Opsi ({kode})", ["A", "F", "X"], key=f"opsi_{key_suffix}")
+        opsi = st.selectbox(f"Opsi ({kode})", options_dens, index=default_idx, key=f"opsi_{key_suffix}")
     with col_cat:
-        catatan = st.text_input(f"Catatan / temuan untuk {kode}...", key=f"cat_{key_suffix}")
+        catatan = st.text_input(f"Catatan / temuan untuk {kode}...", value=prev_catatan, key=f"cat_{key_suffix}")
     
     st.markdown("**Parameter Densitas (Input Asli):**")
     d1, d2, d3, d4, d5, d6 = st.columns(6)
@@ -224,9 +244,10 @@ def render_density_audit_item(kode, nama_bbm, bobot, key_suffix):
         st.markdown("<br>", unsafe_allow_html=True)
         st.metric(label="Density Var.", value="0.0000")
 
+    file_name_saved = saved_item.get("Lampiran Bukti Foto/Video", "Tidak Ada Lampiran")
+    file_path_saved = saved_item.get("File_Path", None)
+
     uploaded_file = st.file_uploader(f"Unggah Bukti ({kode})", type=["png", "jpg", "jpeg", "mp4", "mov"], key=f"up_{key_suffix}")
-    file_name_saved = "Tidak Ada Lampiran"
-    file_path_saved = None
     if uploaded_file is not None:
         safe_kode_name = kode.replace(".", "_")
         file_extension = uploaded_file.name.split('.')[-1].lower()
@@ -262,11 +283,20 @@ def render_nozzle_audit_item(kode, pertanyaan, bobot, key_suffix):
     if state_key_count not in st.session_state:
         st.session_state[state_key_count] = 1
 
+    saved_item = st.session_state.audit_data.get(kode, {})
+    prev_opsi = saved_item.get("Opsi Dipilih", "A")
+    prev_catatan = saved_item.get("Catatan Assessor", "")
+    if prev_catatan == "-":
+        prev_catatan = ""
+
+    options_noz = ["A", "B", "C", "F"]
+    default_idx = options_noz.index(prev_opsi) if prev_opsi in options_noz else 0
+
     col_opt, col_cat = st.columns([2, 4])
     with col_opt:
-        opsi = st.selectbox(f"Opsi Penilaian ({kode})", ["A", "B", "C", "F"], key=f"opsi_{key_suffix}")
+        opsi = st.selectbox(f"Opsi Penilaian ({kode})", options_noz, index=default_idx, key=f"opsi_{key_suffix}")
     with col_cat:
-        catatan = st.text_input(f"Catatan / temuan untuk {kode}...", key=f"cat_{key_suffix}")
+        catatan = st.text_input(f"Catatan / temuan untuk {kode}...", value=prev_catatan, key=f"cat_{key_suffix}")
 
     st.markdown("**Parameter Nozzle & Volume (Dapat Menambahkan Banyak Baris Nozzle):**")
     
@@ -308,9 +338,10 @@ def render_nozzle_audit_item(kode, pertanyaan, bobot, key_suffix):
             "Var. (ml)": var_ml
         })
 
+    file_name_saved = saved_item.get("Lampiran Bukti Foto/Video", "Tidak Ada Lampiran")
+    file_path_saved = saved_item.get("File_Path", None)
+
     uploaded_file = st.file_uploader(f"Unggah Bukti Nozzle ({kode})", type=["png", "jpg", "jpeg", "mp4", "mov"], key=f"up_{key_suffix}")
-    file_name_saved = "Tidak Ada Lampiran"
-    file_path_saved = None
     if uploaded_file is not None:
         file_extension = uploaded_file.name.split('.')[-1].lower()
         file_name_saved = f"bukti_{kode.replace('.', '_')}.{file_extension}"
@@ -705,7 +736,6 @@ elif st.session_state.current_page == 'detail_elemen3':
     st.markdown("## SPBU AUDIT CHECK LIST")
     st.markdown("### Elemen 3: Reliable Facilities & Safety (Max Bobot: 20)")
     
-    # Sub-Elemen 3.1: Kebersihan Harian (14.5)
     st.markdown("### Sub-Elemen 3.1: Kebersihan Harian (14.5)")
     st.markdown("#### 3.1.1 Halaman Depan (6.5)")
     render_audit_item("3.1.1.a", "Driveway/ Pelataran pengisian BBM dalam keadaan bebas tumpahan minyak, sampah, kering, dan terpelihara baik (tak ada lubang atau genangan air)", "A-F", "", 0.9, "3_1_1_a", "Elemen 3")
@@ -738,49 +768,47 @@ elif st.session_state.current_page == 'detail_elemen3':
     render_audit_item("3.1.3.d", "Alat perangkat salat tersedia di musala, dalam kondisi baik dan segar", "A/C/F/X", "", 0.15, "3_1_3_d", "Elemen 3")
 
     st.markdown("#### 3.1.4 Aspek HSSE (2.5)")
-    render_audit_item("3.1.4.a", "Tersedia alat pemadam api ringan (APAR) dalam kondisi baik dan mudah diakses: - Tersedia minimal 1 (satu) buah APAR DCP 9 kg dan/atau CO2 6 kg di setiap pulau pompa", "A/F", "APAR", 0.1, "3_1_4_a", "Elemen 3")
-    render_audit_item("3.1.4.b", "Tersedia minimal 2 (dua) buah alat pemadam api beroda (APAP) DCP minimal 68 kg / 150 lbs serta dalam kondisi baik dan mudah diakses", "A/F", "APAP", 0.1, "3_1_4_b", "Elemen 3")
-    render_audit_item("3.1.4.c", "Alat pemadam api memiliki kartu inspeksi, tanggal kedaluwarsa dan masih berlaku untuk digunakan", "A/F", "Masa Berlaku APAR", 0.1, "3_1_4_c", "Elemen 3")
-    render_audit_item("3.1.4.d", "\"Grounding\" (Kawat penetralan arus listrik) di area pengisian BBM dalam kondisi baik", "A/F", "Grounding", 0.1, "3_1_4_d", "Elemen 3")
+    render_audit_item("3.1.4.a", "Tersedia alat pemadam api ringan (APAR) dalam kondisi baik dan mudah diakses", "A/F", "APAR", 0.1, "3_1_4_a", "Elemen 3")
+    render_audit_item("3.1.4.b", "Tersedia minimal 2 (dua) buah alat pemadam api beroda (APAP)", "A/F", "APAP", 0.1, "3_1_4_b", "Elemen 3")
+    render_audit_item("3.1.4.c", "Alat pemadam api memiliki kartu inspeksi dan masih berlaku", "A/F", "Masa Berlaku APAR", 0.1, "3_1_4_c", "Elemen 3")
+    render_audit_item("3.1.4.d", "\"Grounding\" di area pengisian BBM dalam kondisi baik", "A/F", "Grounding", 0.1, "3_1_4_d", "Elemen 3")
     render_audit_item("3.1.4.e", "Ducting / saluran pipa dari tangki timbun ke dispenser ditimbun", "A/F", "Ducting", 0.1, "3_1_4_e", "Elemen 3")
     render_audit_item("3.1.4.f", "Seluruh nozzle terpasang Breakaway Valve", "A/F", "Breakaway Valve", 0.1, "3_1_4_f", "Elemen 3")
     render_audit_item("3.1.4.g", "Dispensing Sump & Impact Valve terpasang dan dalam kondisi baik", "A/F", "", 0.2, "3_1_4_g", "Elemen 3")
-    render_audit_item("3.1.4.h", "Tidak terdapat kegiatan lain (jualan) di zona berbahaya (area pulau pompa dan pembongkaran)", "A/F", "", 0.1, "3_1_4_h", "Elemen 3")
-    render_audit_item("3.1.4.i", "Terdapat stop kontak di kanopi yang sesuai spesifikasi (enclosure / tertutup)", "A/F", "", 0.2, "3_1_4_i", "Elemen 3")
-    render_audit_item("3.1.4.j", "Emergency shut down tersedia di setiap dispenser dan berfungsi dengan baik (uji fungsional)", "A/F", "Emergency Shut Down", 0.1, "3_1_4_j", "Elemen 3")
-    render_audit_item("3.1.4.k", "Junction box kabel kedap (dispenser dan dombak)", "A/F", "", 0.2, "3_1_4_k", "Elemen 3")
+    render_audit_item("3.1.4.h", "Tidak terdapat kegiatan lain (jualan) di zona berbahaya", "A/F", "", 0.1, "3_1_4_h", "Elemen 3")
+    render_audit_item("3.1.4.i", "Terdapat stop kontak di kanopi yang sesuai spesifikasi (tertutup)", "A/F", "", 0.2, "3_1_4_i", "Elemen 3")
+    render_audit_item("3.1.4.j", "Emergency shut down tersedia di setiap dispenser dan berfungsi baik", "A/F", "Emergency Shut Down", 0.1, "3_1_4_j", "Elemen 3")
+    render_audit_item("3.1.4.k", "Junction box kabel kedap", "A/F", "", 0.2, "3_1_4_k", "Elemen 3")
     render_audit_item("3.1.4.l", "Tidak ada lubang terbuka di area manhole", "A/F", "ST Manhole", 0.1, "3_1_4_l", "Elemen 3")
-    render_audit_item("3.1.4.m", "Tidak terdapat genangan BBM / air di dalam dombak / tank sump", "A/F", "ST Air", 0.1, "3_1_4_m", "Elemen 3")
-    render_audit_item("3.1.4.n", "Tersedia rambu-rambu / sticker peringatan / larangan mengenai safety", "A/F", "", 0.1, "3_1_4_n", "Elemen 3")
+    render_audit_item("3.1.4.m", "Tidak terdapat genangan BBM / air di dalam tank sump", "A/F", "ST Air", 0.1, "3_1_4_m", "Elemen 3")
+    render_audit_item("3.1.4.n", "Tersedia rambu-rambu / sticker peringatan safety", "A/F", "", 0.1, "3_1_4_n", "Elemen 3")
     render_audit_item("3.1.4.o", "Tersedia daftar nomor telepon penting / emergency", "A/F", "", 0.1, "3_1_4_o", "Elemen 3")
-    render_audit_item("3.1.4.p", "Tersedia Surat Ijin Kerja Aman (SIKA) saat ada pekerjaan perbaikan di lokasi", "A/F/X", "", 0.1, "3_1_4_p", "Elemen 3")
-    render_audit_item("3.1.4.q", "SPBU tersedia dokumen UKL/UPL yang disahkan dari dinas/instansi terkait", "A/C", "", 0.1, "3_1_4_q", "Elemen 3")
+    render_audit_item("3.1.4.p", "Tersedia Surat Ijin Kerja Aman (SIKA)", "A/F/X", "", 0.1, "3_1_4_p", "Elemen 3")
+    render_audit_item("3.1.4.q", "SPBU tersedia dokumen UKL/UPL", "A/C", "", 0.1, "3_1_4_q", "Elemen 3")
     render_audit_item("3.1.4.r", "Instalasi listrik sesuai dengan standar", "A/F", "", 0.1, "3_1_4_r", "Elemen 3")
     render_audit_item("3.1.4.s", "Kotak P3K tersedia di kantor", "A/F", "", 0.1, "3_1_4_s", "Elemen 3")
-    render_audit_item("3.1.4.t", "Operator dan pengawas telah terlatih dalam hal pemadaman kebakaran", "A/F", "", 0.2, "3_1_4_t", "Elemen 3")
-    render_audit_item("3.1.4.u", "Terdapat minimal 1 (satu) orang petugas SPBU aktif yang telah mendapat surat keterangan Safetyman", "A/F", "Safetyman", 0.1, "3_1_4_u", "Elemen 3")
+    render_audit_item("3.1.4.t", "Operator dan pengawas telah terlatih pemadaman kebakaran", "A/F", "", 0.2, "3_1_4_t", "Elemen 3")
+    render_audit_item("3.1.4.u", "Terdapat minimal 1 petugas berlisensi Safetyman", "A/F", "Safetyman", 0.1, "3_1_4_u", "Elemen 3")
 
-    # Sub-Elemen 3.2: Pemeliharaan berkala (4.5)
-    st.markdown("### Sub-Elemen 3.2: Pemeliharaan berkala atas DU, ST, dan Fasilitas Retail Outlet (4.5)")
-    render_audit_item("3.2.a", "Catatan pemeliharaan Fasilitas SPBU (housekeeping) diperbarui sesuai jadwal", "A/F", "", 0.5, "3_2_a", "Elemen 3")
-    render_audit_item("3.2.b", "Catatan pemeliharaan DU (Dispenser Unit) & ST (Storage Tank) diperbarui sesuai jadwal", "A/F", "", 0.5, "3_2_b", "Elemen 3")
-    render_audit_item("3.2.c", "Dispenser Unit BBM tidak tampak kerusakan dan cat tidak tampak pudar/terkelupas", "A/F", "", 0.5, "3_2_c", "Elemen 3")
-    render_audit_item("3.2.d", "Layar penunjuk (LCD Dispenser) terbaca dengan jelas", "A/F", "", 0.5, "3_2_d", "Elemen 3")
-    render_audit_item("3.2.e", "Tidak ada kebocoran pada sambungan pipa produk di dalam Dispenser Unit BBM", "A/F", "", 0.5, "3_2_e", "Elemen 3")
-    render_audit_item("3.2.f", "Semua koneksi listrik di dalam Dispenser Unit tidak terdapat sambungan yang longgar, terbuka dan terkelupas", "A/F", "", 0.5, "3_2_f", "Elemen 3")
-    render_audit_item("3.2.g", "Selang pengisian BBM tidak bocor atau terkelupas", "A/F", "", 0.5, "3_2_g", "Elemen 3")
-    render_audit_item("3.2.h", "Generator terpelihara secara baik dan tidak ditemukan kebocoran minyak atau pelumas, serta dapat berfungsi dengan baik (diuji)", "A/F", "", 0.5, "3_2_h", "Elemen 3")
-    render_audit_item("3.2.i", "Pipa sirkulasi udara tangki timbun (Vent Pipe) pada area penyimpanan BBM sesuai warna produk", "A/F/X", "", 0.5, "3_2_i", "Elemen 3")
+    st.markdown("### Sub-Elemen 3.2: Pemeliharaan berkala atas DU, ST, dan Fasilitas (4.5)")
+    render_audit_item("3.2.a", "Catatan pemeliharaan Fasilitas SPBU diperbarui", "A/F", "", 0.5, "3_2_a", "Elemen 3")
+    render_audit_item("3.2.b", "Catatan pemeliharaan DU & ST diperbarui", "A/F", "", 0.5, "3_2_b", "Elemen 3")
+    render_audit_item("3.2.c", "Dispenser Unit tidak tampak kerusakan/cat terkelupas", "A/F", "", 0.5, "3_2_c", "Elemen 3")
+    render_audit_item("3.2.d", "Layar penunjuk (LCD Dispenser) terbaca jelas", "A/F", "", 0.5, "3_2_d", "Elemen 3")
+    render_audit_item("3.2.e", "Tidak ada kebocoran pipa produk di dalam DU", "A/F", "", 0.5, "3_2_e", "Elemen 3")
+    render_audit_item("3.2.f", "Koneksi listrik di dalam DU aman", "A/F", "", 0.5, "3_2_f", "Elemen 3")
+    render_audit_item("3.2.g", "Selang pengisian BBM tidak bocor/terkelupas", "A/F", "", 0.5, "3_2_g", "Elemen 3")
+    render_audit_item("3.2.h", "Generator terpelihara dan berfungsi baik", "A/F", "", 0.5, "3_2_h", "Elemen 3")
+    render_audit_item("3.2.i", "Pipa sirkulasi udara tangki (Vent Pipe) sesuai warna produk", "A/F/X", "", 0.5, "3_2_i", "Elemen 3")
 
-    # Sub-Elemen 3.3: Uraian Pemeliharaan Kerusakan (1)
-    st.markdown("### Sub-Elemen 3.3: Uraian Pemeliharaan Kerusakan atas DU, ST, dan fasilitas Retail Outlet (1)")
-    render_audit_item("3.3.a", "Catatan pemeliharaan kerusakan tersedia dan terpelihara baik", "A/F", "", 0.25, "3_3_a", "Elemen 3")
-    render_audit_item("3.3.b", "Tanggal keluhan kerusakan dan tanggal keluhan ditanggapi (perbaikan) disebutkan dengan jelas", "A/F", "", 0.25, "3_3_b", "Elemen 3")
-    render_audit_item("3.3.c", "Keluhan kerusakan ditindaklanjuti dan diselesaikan dalam waktu maksimal 3 bulan", "A/F", "", 0.25, "3_3_c", "Elemen 3")
-    render_audit_item("3.3.d", "Seluruh mesin yang ada dalam kondisi baik dan berfungsi", "A/F", "", 0.25, "3_3_d", "Elemen 3")
+    st.markdown("### Sub-Elemen 3.3: Uraian Pemeliharaan Kerusakan (1)")
+    render_audit_item("3.3.a", "Catatan pemeliharaan kerusakan tersedia dan terpelihara", "A/F", "", 0.25, "3_3_a", "Elemen 3")
+    render_audit_item("3.3.b", "Tanggal keluhan kerusakan dan penanganan jelas", "A/F", "", 0.25, "3_3_b", "Elemen 3")
+    render_audit_item("3.3.c", "Keluhan diselesaikan dalam waktu maksimal 3 bulan", "A/F", "", 0.25, "3_3_c", "Elemen 3")
+    render_audit_item("3.3.d", "Seluruh mesin dalam kondisi baik dan berfungsi", "A/F", "", 0.25, "3_3_d", "Elemen 3")
 
 
-# --- HALAMAN 4: DETAIL ELEMEN 4 ---
+# --- HALAMAN 5: DETAIL ELEMEN 4 ---
 elif st.session_state.current_page == 'detail_elemen4':
     if st.button("⬅️ Kembali ke Menu Utama"):
         st.session_state.current_page = 'dashboard'
@@ -791,24 +819,24 @@ elif st.session_state.current_page == 'detail_elemen4':
     st.markdown("### Elemen 4: Visual Format Consistency (Max Bobot: 10)")
     
     st.markdown("### Sub-Elemen 4.1: Identitas Visual Ritel (4)")
-    render_audit_item("4.1.a", "Produk Sign (Product Signage) sesuai dengan standar PERTAMINA", "A/F", "", 1.0, "4_1_a", "Elemen 4")
-    render_audit_item("4.1.b", "Totem sesuai dengan standar PERTAMINA", "A-F", "", 1.0, "4_1_b", "Elemen 4")
-    render_audit_item("4.1.c", "Listplank (Facia) sesuai dengan standar PERTAMINA", "A/F", "", 1.0, "4_1_c", "Elemen 4")
-    render_audit_item("4.1.d", "Tiang kanopi sesuai dengan standar PERTAMINA", "A/F", "", 1.0, "4_1_d", "Elemen 4")
+    render_audit_item("4.1.a", "Produk Sign sesuai standar PERTAMINA", "A/F", "", 1.0, "4_1_a", "Elemen 4")
+    render_audit_item("4.1.b", "Totem sesuai standar PERTAMINA", "A-F", "", 1.0, "4_1_b", "Elemen 4")
+    render_audit_item("4.1.c", "Listplank (Facia) sesuai standar PERTAMINA", "A/F", "", 1.0, "4_1_c", "Elemen 4")
+    render_audit_item("4.1.d", "Tiang kanopi sesuai standar PERTAMINA", "A/F", "", 1.0, "4_1_d", "Elemen 4")
 
     st.markdown("### Sub-Elemen 4.2: Dispenser Unit (2)")
-    render_audit_item("4.2.a", "Dispenser Unit BBM memiliki warna penunjuk produk sesuai dengan standar PERTAMINA.", "A/F", "", 1.0, "4_2_a", "Elemen 4")
-    render_audit_item("4.2.b", "Paduan warna pada Dispenser Unit BBM sesuai dengan standar PERTAMINA", "A/F", "", 1.0, "4_2_b", "Elemen 4")
+    render_audit_item("4.2.a", "Dispenser Unit memiliki warna penunjuk produk standar", "A/F", "", 1.0, "4_2_a", "Elemen 4")
+    render_audit_item("4.2.b", "Paduan warna Dispenser Unit sesuai standar", "A/F", "", 1.0, "4_2_b", "Elemen 4")
 
     st.markdown("### Sub-Elemen 4.3: Lain-lain (4)")
-    render_audit_item("4.3.a", "EDC Digitalisasi dan/atau Tablet MyPertamina tersedia dan berfungsi dengan baik di pulau pompa JBU", "A/B/C/F", "EDC", 0.5, "4_3_a", "Elemen 4")
+    render_audit_item("4.3.a", "EDC Digitalisasi / Tablet MyPertamina tersedia dan berfungsi", "A/B/C/F", "EDC", 0.5, "4_3_a", "Elemen 4")
     render_audit_item("4.3.b", "Petunjuk fasilitas SPBU telah tersedia", "A/F", "", 0.5, "4_3_b", "Elemen 4")
-    render_audit_item("4.3.c", "Penempatan Signage Tenant sesuai ketentuan Pertamina", "A/F", "", 0.5, "4_3_c", "Elemen 4")
-    render_audit_item("4.3.d", "SPBU menggunakan ATG & POS sesuai ketentuan Pertamina", "A/F", "", 1.0, "4_3_d", "Elemen 4")
-    render_audit_item("4.3.e", "SPBU dilengkapi CCTV di setiap pulau pompa dan berfungsi dengan baik dan tersimpan datanya min.1 bulan", "A/F", "CCTV", 0.5, "4_3_e", "Elemen 4")
-    render_audit_item("4.3.f", "Jalur Red Carpet Fast Track (minimal 1 Jalur di R4 untuk nilai 'C') digunakan untuk SPBU Good, Minimal 2 Jalur (min. salah satu di F", "A/C/F", "Jalur Fast Track", 0.5, "4_3_f", "Elemen 4")
-    render_audit_item("4.3.g", "Terdapat Dedicated Operator dengan Rompi Khusus yang selalu stand by di Jalur Red Carpet Fastrack.", "A/F", "", 0.25, "4_3_g", "Elemen 4")
-    render_audit_item("4.3.h", "Posisi jalur Red Carpet Fastrack mudah diakses oleh Pelanggan", "A/C/F", "", 0.25, "4_3_h", "Elemen 4")
+    render_audit_item("4.3.c", "Penempatan Signage Tenant sesuai ketentuan", "A/F", "", 0.5, "4_3_c", "Elemen 4")
+    render_audit_item("4.3.d", "SPBU menggunakan ATG & POS sesuai ketentuan", "A/F", "", 1.0, "4_3_d", "Elemen 4")
+    render_audit_item("4.3.e", "CCTV di setiap pulau pompa berfungsi dan arsip min. 1 bulan", "A/F", "CCTV", 0.5, "4_3_e", "Elemen 4")
+    render_audit_item("4.3.f", "Jalur Red Carpet Fast Track tersedia dan sesuai", "A/C/F", "Jalur Fast Track", 0.5, "4_3_f", "Elemen 4")
+    render_audit_item("4.3.g", "Terdapat Dedicated Operator dengan Rompi Khusus", "A/F", "", 0.25, "4_3_g", "Elemen 4")
+    render_audit_item("4.3.h", "Posisi jalur Red Carpet mudah diakses", "A/C/F", "", 0.25, "4_3_h", "Elemen 4")
 
 
 # --- HALAMAN 6: DETAIL ELEMEN 5 ---
@@ -827,17 +855,17 @@ elif st.session_state.current_page == 'detail_elemen5':
     render_audit_item("5.1.c", "Tersedianya produk Pertamax", "A/F", "CPO", 0.23, "5_1_c", "Elemen 5")
     render_audit_item("5.1.d", "Tersedianya produk Pertamina Dex", "A/F", "CPO", 0.3, "5_1_d", "Elemen 5")
     render_audit_item("5.1.e", "Tersedianya produk Dexlite", "A/F", "", 0.23, "5_1_e", "Elemen 5")
-    render_audit_item("5.1.f", "Tersedia produk JBU minimum 1 jenis yaitu Pertamax Series dan Dex Series minimal nilai \"C\" digunakan untuk SPBU Good", "A/C/F", "Produk JBU", 0.21, "5_1_f", "Elemen 5")
-    render_audit_item("5.1.g", "Realisasi penebusan JBU per-2 (dua) bulan sesuai dengan target minimal yang ditetapkan oleh region (Item ini khusus untuk SPBU Good)", "A/C/F", "VOLUME JBU", 0.2, "5_1_g", "Elemen 5")
-    render_audit_item("5.1.h", "Kesesuaian materi promo yang terpasang di SPBU dengan promo yang sedang berjalan", "A/F/X", "", 0.18, "5_1_h", "Elemen 5")
+    render_audit_item("5.1.f", "Tersedia produk JBU minimum 1 jenis (Pertamax/Dex Series)", "A/C/F", "Produk JBU", 0.21, "5_1_f", "Elemen 5")
+    render_audit_item("5.1.g", "Realisasi penebusan JBU per-2 bulan sesuai target region", "A/C/F", "VOLUME JBU", 0.2, "5_1_g", "Elemen 5")
+    render_audit_item("5.1.h", "Kesesuaian materi promo dengan program berjalan", "A/F/X", "", 0.18, "5_1_h", "Elemen 5")
 
     st.markdown("### Sub-Elemen 5.2: Penawaran non-BBM")
-    render_audit_item("5.2.a", "SPBU tersedia NFR brand Bright yang sesuai standar Pertamina", "A/B/F", "", 0.8, "5_2_a", "Elemen 5")
+    render_audit_item("5.2.a", "SPBU tersedia NFR brand Bright", "A/B/F", "", 0.8, "5_2_a", "Elemen 5")
     render_audit_item("5.2.b", "SPBU tersedia NFR Internasional", "A/B/F", "NFR INT", 0.65, "5_2_b", "Elemen 5")
-    render_audit_item("5.2.c", "SPBU tersedia fasilitas Energi Baru Terbarukan (EBT) berupa: PLTS (Solar Panel) dan Layanan EV", "A/B/F", "", 1.15, "5_2_c", "Elemen 5")
+    render_audit_item("5.2.c", "SPBU tersedia fasilitas EBT (PLTS / Layanan EV)", "A/B/F", "", 1.15, "5_2_c", "Elemen 5")
     render_audit_item("5.2.d", "SPBU tersedia NFR Nasional", "A/B/F", "", 1.15, "5_2_d", "Elemen 5")
-    render_audit_item("5.2.e", "SPBU tersedia NFR Lokal dan berkontrak payung dengan PT Pertamina Patra Niaga", "A/B/F", "NFR LKL", 0.9, "5_2_e", "Elemen 5")
-    render_audit_item("5.2.f", "Seluruh NFR di SPBU memiliki izin Prinsip PT Pertamina Patra Niaga", "A/F", "Izin Prinsip", 0.2, "5_2_f", "Elemen 5")
-    render_audit_item("5.2.g", "SPBU Excellent dengan Opsi A: 1. Tersedia NFR brand Bright / NFR Internasional / fasilitas EBT dan 2. NFR Nasional. SPBU Good...", "A/B/F", "NFR", 1.55, "5_2_g", "Elemen 5")
-    render_audit_item("5.2.h", "SPBU tersedia 2 (dua) brand pelumas milik PT Pertamina Lubricants di SPBU (Fastron series dan Enduro series) dengan format etalase...", "A/B/F", "PELUMAS", 0.8, "5_2_h", "Elemen 5")
-    render_audit_item("5.2.i", "SPBU tersedia fasilitas pengisian air dan angin serta berfungsi dengan baik dan terpelihara dengan baik", "A/F", "", 0.8, "5_2_i", "Elemen 5")
+    render_audit_item("5.2.e", "SPBU tersedia NFR Lokal berizin payung Pertamina", "A/B/F", "NFR LKL", 0.9, "5_2_e", "Elemen 5")
+    render_audit_item("5.2.f", "Seluruh NFR memiliki Izin Prinsip", "A/F", "Izin Prinsip", 0.2, "5_2_f", "Elemen 5")
+    render_audit_item("5.2.g", "Kelengkapan NFR sesuai kategori kelas SPBU", "A/B/F", "NFR", 1.55, "5_2_g", "Elemen 5")
+    render_audit_item("5.2.h", "Tersedia 2 brand pelumas (Fastron & Enduro series)", "A/B/F", "PELUMAS", 0.8, "5_2_h", "Elemen 5")
+    render_audit_item("5.2.i", "Tersedia fasilitas pengisian air dan angin", "A/F", "", 0.8, "5_2_i", "Elemen 5")
