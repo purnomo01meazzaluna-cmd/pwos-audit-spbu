@@ -62,7 +62,7 @@ if 'audit_data' not in st.session_state:
 if 'spbu_profile_data' not in st.session_state:
     st.session_state.spbu_profile_data = {
         "Nomor SPBU": "",
-        "Nama SPBU": "",
+        "Tipe SPBU": "",
         "Alamat": "",
         "Kota/Kabupaten": "",
         "Manager/Pengelola": "",
